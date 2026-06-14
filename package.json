@@ -1,0 +1,22 @@
+{
+  "name": "product-plugin",
+  "version": "0.1.0",
+  "description": "商品一键导入浏览器插件",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pinia": "^2.1.7",
+    "vue": "^3.4.21"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.43",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "typescript": "^5.3.3",
+    "vite": "^5.2.0",
+    "vue-tsc": "^2.0.6"
+  }
+}
