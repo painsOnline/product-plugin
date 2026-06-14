@@ -5,12 +5,9 @@
  * API 客户端，支持自动重试和登录拦截
  */
 import { API_BASE_URL, API_PATHS } from '@/shared/constants';
-
-interface APIResponse<T = unknown> {
-  code: string;
-  msg: string;
-  result: T;
-}
+import { getAuthHeaders } from '@/shared/auth';
+import { showLoginDialog, handleCaptchaFlow } from './interceptors';
+import type { APIResponse } from '@/shared/types';
 
 interface RequestOptions {
   method?: string;
@@ -20,9 +17,9 @@ interface RequestOptions {
 }
 
 /**
- * 发送 API 请求
- * 自动处理 401 → 弹出登录窗口 → 重试原请求
- * 自动处理 429 → 加载验证码
+ * 发送 API 请求，自动处理 401 重试和 429 验证码.
+ *
+ * 重试/验证码逻辑委托给 interceptors.ts（SRP）。
  */
 export async function apiRequest<T = unknown>(
   path: string,
@@ -41,27 +38,20 @@ export async function apiRequest<T = unknown>(
   }
 
   const url = `${API_BASE_URL}${path}`;
-  const fetchOptions: RequestInit = {
-    method,
-    headers: requestHeaders,
-  };
-
+  const fetchOptions: RequestInit = { method, headers: requestHeaders };
   if (body && method !== 'GET') {
     fetchOptions.body = JSON.stringify(body);
   }
 
   const response = await fetch(url, fetchOptions);
-  const data = await response.json();
+  const data: APIResponse<T> = await response.json();
 
   if (data.code === '401') {
     const loginSuccess = await showLoginDialog();
     if (loginSuccess) {
       const retryHeaders = await getAuthHeaders();
       Object.assign(requestHeaders, retryHeaders);
-      const retryResponse = await fetch(url, {
-        ...fetchOptions,
-        headers: requestHeaders,
-      });
+      const retryResponse = await fetch(url, { ...fetchOptions, headers: requestHeaders });
       return retryResponse.json();
     }
   }
@@ -76,54 +66,7 @@ export async function apiRequest<T = unknown>(
   return data;
 }
 
-/**
- * 获取认证头信息
- */
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const result = await chrome.storage.local.get(['auth_token', 'tenant_code']);
-  const headers: Record<string, string> = {};
-  const token = result.auth_token as string | undefined;
-  const tenant = result.tenant_code as string | undefined;
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  if (tenant) {
-    headers['Tenant'] = tenant;
-  }
-  return headers;
-}
-
-/**
- * 显示登录对话框
- */
-async function showLoginDialog(): Promise<boolean> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(
-      { type: 'SHOW_LOGIN_DIALOG' },
-      (response) => {
-        resolve(response?.success ?? false);
-      }
-    );
-  });
-}
-
-/**
- * 处理验证码流程
- */
-async function handleCaptchaFlow(): Promise<boolean> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(
-      { type: 'SHOW_CAPTCHA_FLOW' },
-      (response) => {
-        resolve(response?.success ?? false);
-      }
-    );
-  });
-}
-
-/**
- * 简单的 GET 请求
- */
+/** GET 请求 */
 export async function apiGet<T = unknown>(
   path: string,
   params?: Record<string, string>
@@ -136,9 +79,7 @@ export async function apiGet<T = unknown>(
   return apiRequest<T>(url, { method: 'GET' });
 }
 
-/**
- * POST 请求
- */
+/** POST 请求 */
 export async function apiPost<T = unknown>(
   path: string,
   body: unknown

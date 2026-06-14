@@ -62,9 +62,15 @@ export function createTopBar(platform: string): HTMLElement {
 
   bar.appendChild(text);
   bar.appendChild(btn);
-  document.body.insertBefore(bar, document.body.firstChild);
 
-  document.body.style.marginTop = '50px';
+  // 优先插入到平台预留的 #chromePlugin 容器中，兼容 1688 规范
+  const chromePlugin = document.getElementById('chromePlugin');
+  if (chromePlugin) {
+    chromePlugin.insertBefore(bar, chromePlugin.firstChild);
+  } else {
+    document.body.insertBefore(bar, document.body.firstChild);
+    document.body.style.marginTop = '50px';
+  }
 
   return bar;
 }

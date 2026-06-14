@@ -2,23 +2,71 @@
  * 文件名称：background.ts
  * 作者：shop-tool
  * 时间：2026-06-14
- * Service Worker 后台脚本
+ * Service Worker 后台脚本.
  *
- * 功能：
- * - 消息路由（popup 与 content scripts 之间）
- * - 登录对话框管理
- * - 验证码流程管理
- * - API 代理
+ * - 通过 tabs.onUpdated 动态注入 content scripts (type: module)
+ * - 消息路由（popup ↔ content scripts）
+ * - 登录/验证码流程管理
  */
-import { API_BASE_URL, API_PATHS, STORAGE_KEYS } from '@/shared/constants';
+import { API_BASE_URL, ADMIN_BASE_URL, API_PATHS } from '@/shared/constants';
+import { getAuthHeaders } from '@/shared/auth';
 
-/** 监听来自 popup 和 content script 的消息 */
+console.log('[商品助手] Service Worker 已启动');
+
+// ---- 动态注入 Content Scripts ----
+
+const CONTENT_SCRIPTS: Array<{ matches: string[]; js: string }> = [
+  { matches: ['https://detail.1688.com/offer/*'], js: 'content-1688.js' },
+  { matches: ['https://item.taobao.com/item.htm*'], js: 'content-taobao.js' },
+  { matches: ['https://s.waisongbang.com/*'], js: 'content-jieshun.js' },
+];
+
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'loading' || !tab.url) return;
+
+  for (const script of CONTENT_SCRIPTS) {
+    for (const pattern of script.matches) {
+      if (matchUrl(tab.url, pattern)) {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id! },
+          world: 'ISOLATED',
+          func: (jsFile: string) => {
+            import(chrome.runtime.getURL(jsFile));
+          },
+          args: [script.js],
+        }).catch((err) => {
+          console.warn('[商品助手] 注入脚本失败:', script.js, err.message);
+        });
+        break;
+      }
+    }
+  }
+});
+
+/** 简单的 URL glob 匹配 */
+function matchUrl(url: string, pattern: string): boolean {
+  const regex = new RegExp(
+    '^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '\\?') + '$'
+  );
+  return regex.test(url);
+}
+
+// ---- 消息路由 ----
+
+let loginResolve: ((v: boolean) => void) | null = null;
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   const msgType = message.type as string;
 
+  if (msgType === 'LOGIN_SUCCESS' && loginResolve) {
+    loginResolve(true);
+    loginResolve = null;
+    return false;
+  }
+
   if (msgType === 'SHOW_LOGIN_DIALOG') {
     handleLoginFlow().then((success) => sendResponse({ success }));
-    return true; // async response
+    return true;
   }
 
   if (msgType === 'SHOW_CAPTCHA_FLOW') {
@@ -34,27 +82,35 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-/** 处理登录流程 */
+// ---- 登录流程 ----
+
 async function handleLoginFlow(): Promise<boolean> {
-  chrome.action.openPopup();
-  return true;
+  chrome.action.openPopup().catch(() => {});
+  return new Promise((resolve) => {
+    loginResolve = resolve;
+    setTimeout(() => {
+      if (loginResolve === resolve) {
+        loginResolve = null;
+        resolve(false);
+      }
+    }, 120_000);
+  });
 }
 
-/** 处理验证码流程 */
+// ---- 验证码流程 ----
+
 async function handleCaptchaFlow(): Promise<boolean> {
   try {
-    const response = await fetch(`${API_BASE_URL}${API_PATHS.CAPTCHA}`);
+    const response = await fetch(`${ADMIN_BASE_URL}${API_PATHS.CAPTCHA}`);
     const data = await response.json();
-    if (data.code === '200') {
-      return true;
-    }
-    return false;
+    return data.code === '200';
   } catch {
     return false;
   }
 }
 
-/** 代理 API 请求 */
+// ---- API 代理 ----
+
 async function handleApiRequest(payload: {
   path: string;
   method?: string;
@@ -62,28 +118,15 @@ async function handleApiRequest(payload: {
 }): Promise<unknown> {
   const { path, method = 'GET', body } = payload;
   try {
-    const storage = await chrome.storage.local.get([
-      STORAGE_KEYS.AUTH_TOKEN,
-      STORAGE_KEYS.TENANT_CODE,
-    ]);
-
+    const authHeaders = await getAuthHeaders();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      ...authHeaders,
     };
-    const authToken = storage[STORAGE_KEYS.AUTH_TOKEN] as string | undefined;
-    const tenantCode = storage[STORAGE_KEYS.TENANT_CODE] as string | undefined;
-    if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
-    }
-    if (tenantCode) {
-      headers['Tenant'] = tenantCode;
-    }
-
     const fetchOptions: RequestInit = { method, headers };
     if (body && method !== 'GET') {
       fetchOptions.body = JSON.stringify(body);
     }
-
     const response = await fetch(`${API_BASE_URL}${path}`, fetchOptions);
     return response.json();
   } catch (e) {

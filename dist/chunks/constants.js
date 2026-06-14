@@ -1,1 +1,0 @@
-const a="https://app.xinqianmao.com",t="wss://app.xinqianmao.com",n={LOGIN:"/admin/login",CAPTCHA:"/admin/captcha",PRODUCT_SAVE:"/agent/product/save",PRODUCT_GET:"/agent/product/get",CHAT_WS:"/agent/chat"},_={AUTH_TOKEN:"auth_token",TENANT_CODE:"tenant_code",ACCOUNT:"account",ACTIVE_THREAD_ID:"active_thread_id"};export{n as A,_ as S,t as W,a};

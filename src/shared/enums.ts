@@ -5,11 +5,13 @@
  * 枚举类型定义
  */
 
+/** @deprecated Use `type Platform = '1688' | 'taobao'` from shared/types.ts */
 export enum Platform {
   ALIBABA_1688 = '1688',
   TAOBAO = 'taobao',
 }
 
+/** @deprecated Use `type OperateType` from shared/types.ts */
 export enum OperateType {
   REWRITE_TITLE = 'rewrite_title',
   MATCH_ATTR = 'match_attr',

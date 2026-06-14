@@ -2,15 +2,18 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { resolve } from 'path';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [vue()],
+  server: {
+    port: 5199,
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
     },
   },
   build: {
-    outDir: 'dist',
+    outDir: mode === 'production' ? 'dist/build' : 'dist/dev',
     rollupOptions: {
       input: {
         popup: resolve(__dirname, 'src/popup/index.html'),
@@ -26,4 +29,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

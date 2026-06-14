@@ -4,7 +4,6 @@
       <h1>商品导入助手</h1>
     </div>
 
-    <!-- 未登录状态 -->
     <div v-if="!authStore.isLoggedIn" class="login-section">
       <h3>登录</h3>
       <div class="form-group">
@@ -19,8 +18,7 @@
         <label>密码</label>
         <input v-model="loginForm.password" type="password" placeholder="请输入密码" />
       </div>
-      <!-- 验证码区域，429 时显示 -->
-      <div v-if="showCaptcha" class="form-group captcha-group">
+      <div v-if="showCaptcha" class="form-group">
         <label>验证码</label>
         <img v-if="captchaImage" :src="'data:image/png;base64,' + captchaImage" alt="验证码" class="captcha-img" />
         <input v-model="loginForm.captchaInput" type="text" placeholder="请输入验证码" />
@@ -31,14 +29,12 @@
       <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
     </div>
 
-    <!-- 已登录状态 -->
     <div v-else class="logged-in-section">
       <div class="user-info">
         <span>已登录: {{ authStore.account }}</span>
         <span class="tenant">租户: {{ authStore.tenantCode }}</span>
       </div>
       <button class="btn-logout" @click="handleLogout">退出登录</button>
-
       <div class="quick-guide">
         <h3>快速指引</h3>
         <ol>
@@ -61,7 +57,7 @@
  */
 import { defineComponent } from 'vue';
 import { useAuthStore } from '@/stores/auth';
-import { API_PATHS } from '@/shared/constants';
+import { API_PATHS, ADMIN_BASE_URL } from '@/shared/constants';
 
 export default defineComponent({
   name: 'App',
@@ -94,7 +90,7 @@ export default defineComponent({
       this.errorMsg = '';
       try {
         const response = await fetch(
-          `https://app.xinqianmao.com${API_PATHS.LOGIN}`,
+          `${ADMIN_BASE_URL}${API_PATHS.LOGIN}`,
           {
             method: 'POST',
             headers: {
@@ -118,10 +114,12 @@ export default defineComponent({
             data.result.account
           );
           this.showCaptcha = false;
+          // 通知 background 登录成功
+          chrome.runtime.sendMessage({ type: 'LOGIN_SUCCESS' });
         } else if (data.code === '429') {
           this.showCaptcha = true;
           this.errorMsg = '请输入验证码';
-          const captchaRes = await fetch('https://app.xinqianmao.com/admin/captcha');
+          const captchaRes = await fetch(`${ADMIN_BASE_URL}${API_PATHS.CAPTCHA}`);
           const captchaData = await captchaRes.json();
           if (captchaData.code === '200') {
             this.captchaImage = captchaData.result.image;
@@ -139,93 +137,26 @@ export default defineComponent({
     async handleLogout() {
       await useAuthStore().logout();
     },
+  },
 });
 </script>
 
 <style scoped>
-.app-container {
-  padding: 16px;
-}
-.header {
-  text-align: center;
-  margin-bottom: 16px;
-}
-.header h1 {
-  font-size: 18px;
-  margin: 0;
-  color: #ff6b00;
-}
-.login-section h3, .quick-guide h3 {
-  font-size: 14px;
-  margin-bottom: 12px;
-}
-.form-group {
-  margin-bottom: 10px;
-}
-.form-group label {
-  display: block;
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 4px;
-}
-.form-group input {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-  box-sizing: border-box;
-}
-.btn-primary {
-  width: 100%;
-  padding: 10px;
-  background: #ff6b00;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  cursor: pointer;
-  margin-top: 8px;
-}
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.btn-logout {
-  padding: 6px 16px;
-  background: #999;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  margin-top: 8px;
-}
-.error-msg {
-  color: #f56c6c;
-  font-size: 12px;
-  margin-top: 8px;
-}
-.user-info {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  padding: 8px 0;
-}
-.tenant {
-  color: #999;
-}
-.quick-guide {
-  margin-top: 16px;
-  border-top: 1px solid #eee;
-  padding-top: 12px;
-}
-.quick-guide ol {
-  font-size: 12px;
-  color: #666;
-  padding-left: 20px;
-}
-.quick-guide li {
-  margin-bottom: 6px;
-}
+.app-container { padding: 16px; }
+.header { text-align: center; margin-bottom: 16px; }
+.header h1 { font-size: 18px; margin: 0; color: #ff6b00; }
+.login-section h3, .quick-guide h3 { font-size: 14px; margin-bottom: 12px; }
+.form-group { margin-bottom: 10px; }
+.form-group label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
+.form-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+.captcha-img { max-width: 200px; display: block; margin-bottom: 6px; }
+.btn-primary { width: 100%; padding: 10px; background: #ff6b00; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; margin-top: 8px; }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-logout { padding: 6px 16px; background: #999; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-top: 8px; }
+.error-msg { color: #f56c6c; font-size: 12px; margin-top: 8px; }
+.user-info { display: flex; justify-content: space-between; font-size: 13px; padding: 8px 0; }
+.tenant { color: #999; }
+.quick-guide { margin-top: 16px; border-top: 1px solid #eee; padding-top: 12px; }
+.quick-guide ol { font-size: 12px; color: #666; padding-left: 20px; }
+.quick-guide li { margin-bottom: 6px; }
 </style>

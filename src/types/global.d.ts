@@ -1,6 +1,7 @@
 /** Global type declarations for Chrome Extension */
 
 /// <reference types="chrome"/>
+/// <reference types="vite/client"/>
 
 declare module '*.vue' {
   import type { DefineComponent } from 'vue';
