@@ -1,69 +1,68 @@
 /**
  * 文件名称：api.ts
  * 作者：shop-tool
- * 时间：2026-06-14
- * API 客户端，支持自动重试和登录拦截
+ * 时间：2026-06-15
+ * API 客户端，所有请求通过 Service Worker 代理以规避 CORS 限制.
+ *
+ * 从 https 页面访问 localhost 会被 Chrome Private Network Access 拦截，
+ * 因此不在 content script 中直接 fetch，而是委托 Service Worker 执行.
  */
-import { API_BASE_URL, API_PATHS } from '@/shared/constants';
-import { getAuthHeaders } from '@/shared/auth';
 import { showLoginDialog, handleCaptchaFlow } from './interceptors';
 import type { APIResponse } from '@/shared/types';
 
-interface RequestOptions {
+interface RequestPayload {
+  path: string;
   method?: string;
-  headers?: Record<string, string>;
   body?: unknown;
-  needAuth?: boolean;
+}
+
+/** 通过 Service Worker 代理发送 API 请求 */
+function swApiRequest(payload: RequestPayload): Promise<APIResponse<unknown>> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(
+      { type: 'API_REQUEST', payload },
+      (response) => {
+        resolve((response as APIResponse<unknown>) || {
+          code: '500', msg: 'Service Worker 无响应', result: null,
+        });
+      }
+    );
+  });
 }
 
 /**
- * 发送 API 请求，自动处理 401 重试和 429 验证码.
- *
- * 重试/验证码逻辑委托给 interceptors.ts（SRP）。
+ * 发送 API 请求（经 Service Worker），自动处理 401 重试和 429 验证码.
  */
 export async function apiRequest<T = unknown>(
   path: string,
-  options: RequestOptions = {}
+  options: { method?: string; body?: unknown } = {}
 ): Promise<APIResponse<T>> {
-  const { method = 'GET', headers = {}, body, needAuth = true } = options;
+  const { method = 'GET', body } = options;
 
-  const requestHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...headers,
-  };
-
-  if (needAuth) {
-    const authHeaders = await getAuthHeaders();
-    Object.assign(requestHeaders, authHeaders);
-  }
-
-  const url = `${API_BASE_URL}${path}`;
-  const fetchOptions: RequestInit = { method, headers: requestHeaders };
+  const payload: RequestPayload = { path, method };
   if (body && method !== 'GET') {
-    fetchOptions.body = JSON.stringify(body);
+    payload.body = body;
   }
 
-  const response = await fetch(url, fetchOptions);
-  const data: APIResponse<T> = await response.json();
+  let data = await swApiRequest(payload);
 
+  // 401 → 弹出登录 → 重试
   if (data.code === '401') {
     const loginSuccess = await showLoginDialog();
     if (loginSuccess) {
-      const retryHeaders = await getAuthHeaders();
-      Object.assign(requestHeaders, retryHeaders);
-      const retryResponse = await fetch(url, { ...fetchOptions, headers: requestHeaders });
-      return retryResponse.json();
+      data = await swApiRequest(payload);
     }
   }
 
+  // 429 → 验证码流程 → 重试
   if (data.code === '429') {
     const captchaResolved = await handleCaptchaFlow();
     if (captchaResolved) {
-      return apiRequest<T>(path, options);
+      data = await swApiRequest(payload);
     }
   }
 
-  return data;
+  return data as APIResponse<T>;
 }
 
 /** GET 请求 */

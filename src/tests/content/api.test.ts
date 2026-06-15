@@ -1,15 +1,11 @@
 /**
  * 文件名称：api.test.ts
  * 作者：shop-tool
- * 时间：2026-06-14
- * 逻辑说明：content/utils/api.ts API 客户端单元测试.
+ * 时间：2026-06-15
+ * 逻辑说明：content/utils/api.ts API 客户端单元测试（经 Service Worker 代理）.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetChromeStorage } from '../setup';
-import { API_BASE_URL } from '@/shared/constants';
-
-const mockFetch = vi.fn();
-(globalThis as Record<string, unknown>).fetch = mockFetch;
 
 vi.mock('@/content/utils/interceptors', () => ({
   showLoginDialog: vi.fn(),
@@ -19,103 +15,125 @@ vi.mock('@/content/utils/interceptors', () => ({
 import { apiRequest, apiGet, apiPost } from '@/content/utils/api';
 import { showLoginDialog, handleCaptchaFlow } from '@/content/utils/interceptors';
 
+/** mock sendMessage 快捷方法 */
+function mockSendMessage(response: unknown) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.spyOn(chrome.runtime, 'sendMessage').mockImplementation(((...args: any[]) => {
+    // sendMessage(extensionId?, message, options?, callback)
+    // Find the callback - it's the last function argument
+    for (let i = args.length - 1; i >= 0; i--) {
+      if (typeof args[i] === 'function') {
+        args[i](response);
+        break;
+      }
+    }
+    return true;
+  }) as unknown as typeof chrome.runtime.sendMessage);
+}
+
+/** 获取 sendMessage 调用参数 */
+function getSendMessagePayload(callIndex: number): Record<string, unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const calls = (chrome.runtime.sendMessage as any).mock.calls;
+  const args = calls[callIndex] as unknown[];
+  // sendMessage(extensionId?, message, options?, callback)
+  // message is always the first non-string, non-function, non-undefined object
+  for (const arg of args) {
+    if (arg && typeof arg === 'object' && 'type' in (arg as object)) {
+      return arg as Record<string, unknown>;
+    }
+  }
+  return {};
+}
+
 beforeEach(() => {
   resetChromeStorage();
-  mockFetch.mockReset();
   vi.mocked(showLoginDialog).mockReset();
   vi.mocked(handleCaptchaFlow).mockReset();
 });
 
 describe('apiRequest', () => {
-  it('发送 GET 请求并返回数据', async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '200', msg: 'ok', result: { id: 1 } }),
-    });
+  it('发送 GET 请求并返回数据（经 SW 代理）', async () => {
+    mockSendMessage({ code: '200', msg: 'ok', result: { id: 1 } });
 
-    const result = await apiRequest('/test', { method: 'GET', needAuth: false });
+    const result = await apiRequest('/test', { method: 'GET' });
     expect(result.code).toBe('200');
     expect(result.result).toEqual({ id: 1 });
-    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('URL 拼接 API_BASE_URL', async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '200', msg: 'ok', result: null }),
+  it('发送 POST 请求并附带 JSON body（经 SW 代理）', async () => {
+    mockSendMessage({ code: '200', msg: 'ok', result: null });
+
+    await apiRequest('/test', { method: 'POST', body: { name: 'test' } });
+
+    const msg = getSendMessagePayload(0);
+    expect(msg.type).toBe('API_REQUEST');
+    expect(msg.payload).toEqual({
+      path: '/test', method: 'POST', body: { name: 'test' },
     });
-
-    await apiRequest('/agent/product/get', { method: 'GET', needAuth: false });
-    const url = mockFetch.mock.calls[0][0] as string;
-    expect(url).toBe(`${API_BASE_URL}/agent/product/get`);
-  });
-
-  it('发送 POST 请求并附带 JSON body', async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '200', msg: 'ok', result: null }),
-    });
-
-    await apiRequest('/test', { method: 'POST', body: { name: 'test' }, needAuth: false });
-
-    const callArgs = mockFetch.mock.calls[0];
-    const fetchOptions = callArgs[1] as RequestInit;
-    expect(fetchOptions.method).toBe('POST');
-    expect(fetchOptions.body).toBe(JSON.stringify({ name: 'test' }));
   });
 
   it('GET 请求不附带 body', async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '200', msg: 'ok', result: null }),
-    });
+    mockSendMessage({ code: '200', msg: 'ok', result: null });
 
-    await apiRequest('/test', { method: 'GET', body: { x: 1 }, needAuth: false });
+    await apiRequest('/test', { method: 'GET', body: { x: 1 } });
 
-    const fetchOptions = mockFetch.mock.calls[0][1] as RequestInit;
-    expect(fetchOptions.body).toBeUndefined();
+    const msg = getSendMessagePayload(0);
+    expect((msg.payload as Record<string, unknown>).body).toBeUndefined();
   });
 
   it('401 时触发登录弹窗并重试', async () => {
     vi.mocked(showLoginDialog).mockResolvedValueOnce(true);
 
-    await chrome.storage.local.set({ tenant_code: 'test' });
-    await chrome.storage.local.set({ 'test:auth_token': 'fake-token' });
-
-    mockFetch
-      .mockResolvedValueOnce({
-        json: () => Promise.resolve({ code: '401', msg: 'token过期', result: null }),
-      })
-      .mockResolvedValueOnce({
-        json: () => Promise.resolve({ code: '200', msg: 'ok', result: {} }),
-      });
+    let callCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(chrome.runtime, 'sendMessage').mockImplementation(((...args: any[]) => {
+      const cb = args.find((a: unknown) => typeof a === 'function') as (r: unknown) => void;
+      callCount++;
+      if (callCount === 1) {
+        cb?.({ code: '401', msg: 'token过期', result: null });
+      } else {
+        cb?.({ code: '200', msg: 'ok', result: {} });
+      }
+      return true;
+    }) as unknown as typeof chrome.runtime.sendMessage);
 
     const result = await apiRequest('/test', { method: 'GET' });
     expect(showLoginDialog).toHaveBeenCalledOnce();
-    expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(result.code).toBe('200');
   });
 
   it('401 登录取消则不重试', async () => {
     vi.mocked(showLoginDialog).mockResolvedValueOnce(false);
 
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '401', msg: 'token过期', result: null }),
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(chrome.runtime, 'sendMessage').mockImplementation(((...args: any[]) => {
+      const cb = args.find((a: unknown) => typeof a === 'function') as (r: unknown) => void;
+      cb?.({ code: '401', msg: 'token过期', result: null });
+      return true;
+    }) as unknown as typeof chrome.runtime.sendMessage);
 
     const result = await apiRequest('/test', { method: 'GET' });
     expect(result.code).toBe('401');
-    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('429 时触发验证码流程并重试', async () => {
     vi.mocked(handleCaptchaFlow).mockResolvedValueOnce(true);
 
-    mockFetch
-      .mockResolvedValueOnce({
-        json: () => Promise.resolve({ code: '429', msg: '需要验证码', result: null }),
-      })
-      .mockResolvedValueOnce({
-        json: () => Promise.resolve({ code: '200', msg: 'ok', result: {} }),
-      });
+    let callCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(chrome.runtime, 'sendMessage').mockImplementation(((...args: any[]) => {
+      const cb = args.find((a: unknown) => typeof a === 'function') as (r: unknown) => void;
+      callCount++;
+      if (callCount === 1) {
+        cb?.({ code: '429', msg: '需要验证码', result: null });
+      } else {
+        cb?.({ code: '200', msg: 'ok', result: {} });
+      }
+      return true;
+    }) as unknown as typeof chrome.runtime.sendMessage);
 
-    const result = await apiRequest('/test', { method: 'GET', needAuth: false });
+    const result = await apiRequest('/test', { method: 'GET' });
     expect(handleCaptchaFlow).toHaveBeenCalledOnce();
     expect(result.code).toBe('200');
   });
@@ -123,75 +141,46 @@ describe('apiRequest', () => {
   it('429 验证码失败不重试', async () => {
     vi.mocked(handleCaptchaFlow).mockResolvedValueOnce(false);
 
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '429', msg: '需要验证码', result: null }),
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(chrome.runtime, 'sendMessage').mockImplementation(((...args: any[]) => {
+      const cb = args.find((a: unknown) => typeof a === 'function') as (r: unknown) => void;
+      cb?.({ code: '429', msg: '需要验证码', result: null });
+      return true;
+    }) as unknown as typeof chrome.runtime.sendMessage);
 
-    const result = await apiRequest('/test', { method: 'GET', needAuth: false });
+    const result = await apiRequest('/test', { method: 'GET' });
     expect(result.code).toBe('429');
-  });
-
-  it('needAuth=false 不添加认证头', async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '200', msg: 'ok', result: null }),
-    });
-
-    await apiRequest('/test', { method: 'GET', needAuth: false });
-
-    const callArgs = mockFetch.mock.calls[0];
-    const fetchOptions = callArgs[1] as RequestInit;
-    const headers = fetchOptions.headers as Record<string, string>;
-    expect(headers['Authorization']).toBeUndefined();
-    expect(headers['Tenant']).toBeUndefined();
-  });
-
-  it('默认添加 Content-Type 头', async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '200', msg: 'ok', result: null }),
-    });
-
-    await apiRequest('/test', { method: 'GET', needAuth: false });
-
-    const fetchOptions = mockFetch.mock.calls[0][1] as RequestInit;
-    const headers = fetchOptions.headers as Record<string, string>;
-    expect(headers['Content-Type']).toBe('application/json');
   });
 });
 
 describe('apiGet', () => {
-  it('不使用查询参数', async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '200', msg: 'ok', result: null }),
-    });
+  it('不带查询参数', async () => {
+    mockSendMessage({ code: '200', msg: 'ok', result: null });
 
     await apiGet('/test', undefined);
-    const url = mockFetch.mock.calls[0][0] as string;
-    expect(url).toBe(`${API_BASE_URL}/test`);
+    const msg = getSendMessagePayload(0);
+    expect((msg.payload as Record<string, unknown>).path).toBe('/test');
   });
 
   it('带查询参数', async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '200', msg: 'ok', result: null }),
-    });
+    mockSendMessage({ code: '200', msg: 'ok', result: null });
 
     await apiGet('/test', { ext_from: '1688', ext_product_id: '123' });
-    const url = mockFetch.mock.calls[0][0] as string;
-    expect(url).toContain('ext_from=1688');
-    expect(url).toContain('ext_product_id=123');
+    const msg = getSendMessagePayload(0);
+    const path = (msg.payload as Record<string, unknown>).path as string;
+    expect(path).toContain('ext_from=1688');
+    expect(path).toContain('ext_product_id=123');
   });
 });
 
 describe('apiPost', () => {
   it('发送 POST 请求', async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: () => Promise.resolve({ code: '200', msg: 'ok', result: { id: '1' } }),
-    });
+    mockSendMessage({ code: '200', msg: 'ok', result: { id: '1' } });
 
     await apiPost('/test', { name: 'product' });
 
-    const callArgs = mockFetch.mock.calls[0];
-    const fetchOptions = callArgs[1] as RequestInit;
-    expect(fetchOptions.method).toBe('POST');
-    expect(fetchOptions.body).toBe(JSON.stringify({ name: 'product' }));
+    const msg = getSendMessagePayload(0);
+    expect((msg.payload as Record<string, unknown>).method).toBe('POST');
+    expect((msg.payload as Record<string, unknown>).body).toEqual({ name: 'product' });
   });
 });

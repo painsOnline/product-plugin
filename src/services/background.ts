@@ -74,6 +74,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (msgType === 'STORAGE_GET') {
+    const keys = message.keys as string[];
+    chrome.storage.local.get(keys).then((result) => sendResponse(result));
+    return true;
+  }
+
+  if (msgType === 'FETCH_BLOB') {
+    handleFetchBlob(message.url as string).then((result) => sendResponse(result));
+    return true;
+  }
+
   if (msgType === 'API_REQUEST') {
     handleApiRequest(message.payload).then((result) => sendResponse(result));
     return true;
@@ -106,6 +117,29 @@ async function handleCaptchaFlow(): Promise<boolean> {
     return data.code === '200';
   } catch {
     return false;
+  }
+}
+
+// ---- Blob 下载代理（绕过 CORS）----
+
+async function handleFetchBlob(url: string): Promise<{
+  ok: boolean;
+  status: number;
+  buffer?: number[];
+  contentType?: string;
+  error?: string;
+}> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: `HTTP ${response.status}` };
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const bytes = Array.from(new Uint8Array(arrayBuffer));
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    return { ok: true, status: 200, buffer: bytes, contentType };
+  } catch (e) {
+    return { ok: false, status: 0, error: String(e) };
   }
 }
 

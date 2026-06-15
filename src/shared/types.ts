@@ -22,7 +22,9 @@ export type WSMessageType =
   | 'final'
   | 'confirm'
   | 'error'
-  | 'heartbeat';
+  | 'heartbeat'
+  | 'history'
+  | 'step';
 
 /** 商品数据 */
 export interface ProductData {
@@ -103,18 +105,34 @@ export interface APIResponse<T = unknown> {
   result: T;
 }
 
-/** 属性项 */
+/** 目标平台属性项（从街顺 DOM 采集） */
+export interface TargetAttr {
+  channel: string;
+  target_name: string;
+  target_interaction_type: string;
+  target_optional_values: string[];
+  target_value_type: string;
+}
+
+/** 源平台属性项（1688/淘宝原始属性），值现在是数组 */
+export interface OriginAttr {
+  source_name: string;
+  source_value: string[];
+}
+
+/** 属性项（兼容旧代码） */
 export interface AttrItem {
   source_name: string;
   source_value: string;
 }
 
-/** 属性映射 */
+/** 属性映射 — 值改为数组，新增 channel */
 export interface AttrMapping {
+  channel: string;
   target_name: string;
-  target_value: string;
+  target_value: string[];
   source_name: string;
-  source_value: string;
+  source_value: string[];
   map_note: string;
 }
 
@@ -132,15 +150,16 @@ export interface ChatMessage {
   user_id: string;
   user_content: string;
   operate_type: OperateType;
-  origin_title: string;
-  origin_attrs: AttrItem[];
+  target_attrs: TargetAttr[];
   manual_data?: ManualData;
 }
 
 /** WebSocket 最终结果 */
 export interface FinalData {
   new_title: string;
+  original_title: string;
   title_note: string;
+  chat_reply?: string;
   attr_mapping: AttrMapping[];
   warning: {
     has_warn: boolean;

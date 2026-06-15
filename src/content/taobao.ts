@@ -6,7 +6,7 @@
  *
  * 共享流程（顶栏、预览、API、弹窗）由 grabber.ts 统一处理（DRY）。
  */
-import { extractTaobaoProductId } from '@/shared/utils';
+import { extractTaobaoProductId, parseAttrValues } from '@/shared/utils';
 import { initGrabber, type PlatformExtractors } from '@/content/shared/grabber';
 
 const extractors: PlatformExtractors = {
@@ -19,8 +19,8 @@ const extractors: PlatformExtractors = {
     return '';
   },
 
-  extractAttrs(): Record<string, string> {
-    const attrs: Record<string, string> = {};
+  extractAttrs(): Record<string, string[]> {
+    const attrs: Record<string, string[]> = {};
 
     const generalWrap = document.querySelector('div[class^="generalParamsInfoWrap"]');
     if (generalWrap) {
@@ -31,7 +31,7 @@ const extractors: PlatformExtractors = {
         if (titleEl && subEl) {
           const key = titleEl.getAttribute('title') || titleEl.textContent?.trim() || '';
           const value = subEl.getAttribute('title') || subEl.textContent?.trim() || '';
-          if (key) attrs[key] = value;
+          if (key) attrs[key] = parseAttrValues(value);
         }
       });
     }
@@ -43,7 +43,7 @@ const extractors: PlatformExtractors = {
       if (subEl && titleEl) {
         const key = subEl.getAttribute('title') || subEl.textContent?.trim() || '';
         const value = titleEl.getAttribute('title') || titleEl.textContent?.trim() || '';
-        if (key) attrs[key] = value;
+        if (key) attrs[key] = parseAttrValues(value);
       }
     });
 

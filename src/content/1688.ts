@@ -6,7 +6,7 @@
  *
  * 共享流程（顶栏、预览、API、弹窗）由 grabber.ts 统一处理（DRY）。
  */
-import { extract1688ProductId } from '@/shared/utils';
+import { extract1688ProductId, parseAttrValues } from '@/shared/utils';
 import { initGrabber, type PlatformExtractors } from '@/content/shared/grabber';
 
 const extractors: PlatformExtractors = {
@@ -18,8 +18,8 @@ const extractors: PlatformExtractors = {
     return '';
   },
 
-  extractAttrs(): Record<string, string> {
-    const attrs: Record<string, string> = {};
+  extractAttrs(): Record<string, string[]> {
+    const attrs: Record<string, string[]> = {};
     const attrContainer = document.querySelector('#productAttributes');
     if (!attrContainer) return attrs;
 
@@ -33,7 +33,7 @@ const extractors: PlatformExtractors = {
           const key = th.textContent?.trim() || '';
           const value = td.querySelector('.field-value')?.textContent?.trim()
             || td.textContent?.trim() || '';
-          if (key) attrs[key] = value;
+          if (key) attrs[key] = parseAttrValues(value);
         }
       });
     });
@@ -48,7 +48,7 @@ const extractors: PlatformExtractors = {
           const td = tds[i];
           const value = td?.querySelector('.field-value')?.textContent?.trim()
             || td?.textContent?.trim() || '';
-          if (key) attrs[key] = value;
+          if (key) attrs[key] = parseAttrValues(value);
         });
       }
     }

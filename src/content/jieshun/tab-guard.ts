@@ -6,8 +6,21 @@
  */
 import { STORAGE_KEYS, scopedKey } from '@/shared/constants';
 
+/** 兼容 chrome.storage 在动态 import() 中不可用的降级读取 */
+function storageGet(keys: string[]): Promise<Record<string, unknown>> {
+  if (chrome?.storage?.local) {
+    return chrome.storage.local.get(keys);
+  }
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(
+      { type: 'STORAGE_GET', keys },
+      (response) => resolve((response as Record<string, unknown>) || {})
+    );
+  });
+}
+
 async function getActiveThreadKey(): Promise<string> {
-  const raw = await chrome.storage.local.get([STORAGE_KEYS.TENANT_CODE]);
+  const raw = await storageGet([STORAGE_KEYS.TENANT_CODE]);
   const tc = (raw[STORAGE_KEYS.TENANT_CODE] as string) || '';
   return scopedKey(tc, STORAGE_KEYS.ACTIVE_THREAD_ID);
 }
@@ -18,7 +31,7 @@ export async function checkTabConflict(threadId?: string): Promise<boolean> {
   if (!currentUrl.includes('product_update')) return false;
 
   const key = await getActiveThreadKey();
-  const result = await chrome.storage.local.get([key]);
+  const result = await storageGet([key]);
   const activeId = result[key] as string | undefined;
   if (activeId && threadId && activeId === threadId) {
     alert('您已在其他页面编辑同一商品，不能多处同时上传商品。');

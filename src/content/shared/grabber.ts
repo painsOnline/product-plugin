@@ -40,13 +40,13 @@ function showToast(msg: string): void {
 /** 平台数据提取器接口（OCP：新增平台只需实现此接口） */
 export interface PlatformExtractors {
   extractTitle(): string;
-  extractAttrs(): Record<string, string>;
+  extractAttrs(): Record<string, string[]>;
   extractPictures(): string[];
   extractDetailPictures(): string[];
 }
 
 /** 构建商品属性表格 */
-function buildAttrTable(attrs: Record<string, string>): HTMLElement {
+function buildAttrTable(attrs: Record<string, string[]>): HTMLElement {
   const wrapper = document.createElement('div');
   wrapper.style.cssText = 'max-height: 200px; overflow-y: auto;';
 
@@ -56,14 +56,13 @@ function buildAttrTable(attrs: Record<string, string>): HTMLElement {
   `;
 
   const entries = Object.entries(attrs);
-  // 每行两对属性
   for (let i = 0; i < entries.length; i += 2) {
     const row = document.createElement('tr');
 
     for (let j = 0; j < 2; j++) {
       const idx = i + j;
       if (idx < entries.length) {
-        const [key, value] = entries[idx];
+        const [key, values] = entries[idx];
         const th = document.createElement('td');
         th.style.cssText =
           'padding: 4px 8px; background: #f5f5f5; font-weight: bold; width: 25%; border: 1px solid #e8e8e8;';
@@ -72,7 +71,7 @@ function buildAttrTable(attrs: Record<string, string>): HTMLElement {
         const td = document.createElement('td');
         td.style.cssText =
           'padding: 4px 8px; width: 25%; border: 1px solid #e8e8e8;';
-        td.textContent = value;
+        td.textContent = Array.isArray(values) ? values.join('、') : String(values);
 
         row.appendChild(th);
         row.appendChild(td);
@@ -87,7 +86,7 @@ function buildAttrTable(attrs: Record<string, string>): HTMLElement {
 /** 构建商品数据预览内容 */
 export function buildPreviewContent(
   title: string,
-  attrs: Record<string, string>,
+  attrs: Record<string, string[]>,
   pictures: string[],
   detailPics: string[]
 ): HTMLElement {
@@ -152,7 +151,7 @@ export function initGrabber(
   extractors: PlatformExtractors
 ): void {
   let title = '';
-  let attrs: Record<string, string> = {};
+  let attrs: Record<string, string[]> = {};
   let pictures: string[] = [];
   let detailPics: string[] = [];
 

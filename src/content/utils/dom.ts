@@ -76,7 +76,7 @@ export function createTopBar(platform: string): HTMLElement {
 }
 
 /** 创建模态弹窗 */
-export function createModal(title: string, content: HTMLElement): { modal: HTMLElement; close: () => void } {
+export function createModal(title: string, content: HTMLElement): { modal: HTMLElement; overlay: HTMLElement; close: () => void } {
   const overlay = document.createElement('div');
   overlay.id = 'product-plugin-modal-overlay';
   overlay.style.cssText = `
@@ -122,7 +122,7 @@ export function createModal(title: string, content: HTMLElement): { modal: HTMLE
   });
 
   document.body.appendChild(overlay);
-  return { modal, close };
+  return { modal, overlay, close };
 }
 
 /** 创建按钮 */

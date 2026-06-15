@@ -45,7 +45,9 @@ export const API_PATHS = {
   CAPTCHA: '/admin/captcha',
   PRODUCT_SAVE: '/agent/product/save',
   PRODUCT_GET: '/agent/product/get',
+  PRODUCT_AUTO_MATCH: '/agent/product/auto-match',
   CHAT_WS: '/agent/chat',
+  CHAT_HISTORY: '/agent/chat/history',
 } as const;
 
 /** Chrome Storage Keys */

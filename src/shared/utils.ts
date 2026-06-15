@@ -81,3 +81,17 @@ export function base64ToBytes(base64: string): Uint8Array {
   const binString = atob(base64);
   return Uint8Array.from(binString, (m) => m.codePointAt(0) ?? 0);
 }
+
+/**
+ * 解析属性值，将逗号分隔（中英文逗号）的值拆分为数组
+ * 例： "红色,蓝色" → ["红色", "蓝色"]
+ *      "red，blue" → ["red", "blue"]
+ *      "单品" → ["单品"]
+ */
+export function parseAttrValues(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  // 同时支持中文逗号和英文逗号
+  const parts = trimmed.split(/[,，]/);
+  return parts.map((s) => s.trim()).filter(Boolean);
+}
