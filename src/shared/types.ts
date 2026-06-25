@@ -158,6 +158,7 @@ export interface ChatMessage {
 export interface FinalData {
   new_title: string;
   original_title: string;
+  operate_type?: string;
   title_note: string;
   chat_reply?: string;
   attr_mapping: AttrMapping[];

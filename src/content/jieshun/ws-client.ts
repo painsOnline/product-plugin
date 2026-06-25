@@ -6,6 +6,7 @@
  */
 import { getAuthHeaders, getUserId } from '@/shared/auth';
 import { WS_BASE_URL, WS_CONFIG } from '@/shared/constants';
+import { OperateType } from '@/shared/enums';
 import type { TargetAttr, ManualData, FinalData } from '@/shared/types';
 import { fillProductName, showAutoMatchResultPanel, getCachedOriginalAttrs } from './importer';
 import { matchAttributes } from './attribute-matcher';
@@ -16,6 +17,32 @@ let _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let _reconnectAttempts = 0;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let _lastFinalData: FinalData | null = null;
+
+/** 创建或更新状态指示器 */
+function ensureStatusBar(area: HTMLElement): HTMLElement {
+  let bar = area.querySelector('[data-role="agent-status"]') as HTMLElement | null;
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.setAttribute('data-role', 'agent-status');
+    bar.style.cssText = `
+      margin-bottom: 6px; padding: 8px 10px; border-radius: 6px;
+      background: #f0f7ff; border-left: 3px solid #409eff;
+      font-size: 13px; color: #333; display: flex; align-items: center; gap: 8px;
+    `;
+    area.appendChild(bar);
+  }
+  return bar;
+}
+
+function updateStatusBar(bar: HTMLElement, detail: string, icon: string): void {
+  bar.innerHTML = `<span style="font-size:16px">${icon}</span> <span>${detail}</span>`;
+  bar.scrollIntoView?.({ block: 'nearest' });
+}
+
+function removeStatusBar(area: HTMLElement): void {
+  const bar = area.querySelector('[data-role="agent-status"]');
+  if (bar) bar.remove();
+}
 
 /** 格式化时间戳 */
 function ts(): string {
@@ -133,6 +160,34 @@ function cleanup(): void {
   }
 }
 
+/** 创建 / 更新 / 清理流式消息元素 */
+function ensureStreamingMsg(area: HTMLElement): { el: HTMLElement; body: HTMLElement } {
+  let el = area.querySelector('[data-role="streaming-msg"]') as HTMLElement | null;
+  if (!el) {
+    el = document.createElement('div');
+    el.setAttribute('data-role', 'streaming-msg');
+    el.style.cssText = `
+      margin-bottom: 6px; padding: 6px 10px; border-radius: 6px;
+      max-width: 85%; font-size: 13px; word-wrap: break-word; line-height: 1.5;
+      background: #e8f5e9;
+    `;
+    const timeEl = document.createElement('div');
+    timeEl.style.cssText = 'font-size: 11px; color: #999; margin-bottom: 2px;';
+    timeEl.textContent = ts();
+    el.appendChild(timeEl);
+    const body = document.createElement('div');
+    body.style.whiteSpace = 'pre-wrap';
+    el.appendChild(body);
+    area.appendChild(el);
+  }
+  return { el, body: el.lastElementChild as HTMLElement };
+}
+
+function finalizeStreamingMsg(area: HTMLElement): void {
+  const el = area.querySelector('[data-role="streaming-msg"]');
+  if (el) el.removeAttribute('data-role');
+}
+
 /** 建立 WebSocket 连接 */
 async function connectWebSocket(
   threadId: string,
@@ -188,13 +243,29 @@ async function connectWebSocket(
     try {
       const data = JSON.parse(event.data);
       switch (data.type) {
-        case 'step':
-          // 内部进度跟踪，不展示到聊天窗口
+        case 'step': {
+          const bar = ensureStatusBar(messageArea);
+          const icon = data.status === 'done' ? '✅' : data.status === 'failed' ? '❌' : '⏳';
+          updateStatusBar(bar, data.detail || data.step || '', icon);
+          // 节点完成时固化当前流式消息
+          if (data.status === 'done' || data.status === 'failed') {
+            finalizeStreamingMsg(messageArea);
+          }
+          if (data.status === 'failed') {
+            addMessage(messageArea, 'system', `⚠️ ${data.detail || '未知错误'}`);
+          }
           break;
-        case 'stream':
-          addMessage(messageArea, 'assistant', formatStreamContent(data.content));
+        }
+        case 'stream': {
+          const formatted = formatStreamContent(data.content);
+          if (!formatted) break;
+          const { body } = ensureStreamingMsg(messageArea);
+          body.textContent = formatted;
+          messageArea.scrollTop = messageArea.scrollHeight;
           break;
+        }
         case 'respond': {
+          finalizeStreamingMsg(messageArea); removeStatusBar(messageArea);
           const d = data.data || {};
           const reply = d.reply || '';
           if (reply) {
@@ -228,14 +299,24 @@ async function connectWebSocket(
           break;
         }
         case 'final': {
+          finalizeStreamingMsg(messageArea); removeStatusBar(messageArea);
           const d = data.data || {};
           _lastFinalData = d as FinalData;
-          const items = [
-            `推荐标题: ${d.new_title || '(无)'}`,
-            `标题备注: ${d.title_note || '(无)'}`,
-            `属性映射: ${d.attr_mapping?.length || 0} 条`,
-          ];
-          if (d.warning?.has_warn) {
+          // 根据 supervisor 识别的 operate_type 决定展示哪些内容
+          const opType = d.operate_type || OperateType.BOTH;
+          const items: string[] = [];
+          if (opType === OperateType.REWRITE_TITLE || opType === OperateType.BOTH) {
+            if (d.new_title) {
+              items.push(`推荐标题: ${d.new_title}`);
+              if (d.title_note) items.push(`标题备注: ${d.title_note}`);
+            }
+          }
+          if (opType === OperateType.MATCH_ATTR || opType === OperateType.BOTH) {
+            if (d.attr_mapping?.length) {
+              items.push(`属性映射: ${d.attr_mapping.length} 条`);
+            }
+          }
+          if (d.warning?.has_warn && d.warning.warn_content) {
             items.push(`警告: ${d.warning.warn_content}`);
           }
           if (d.suggestion?.summary) {
@@ -245,9 +326,11 @@ async function connectWebSocket(
           break;
         }
         case 'error':
+          finalizeStreamingMsg(messageArea); removeStatusBar(messageArea);
           addMessage(messageArea, 'system', data.msg, `错误码: ${data.code || '-'}`);
           break;
         case 'confirm': {
+          finalizeStreamingMsg(messageArea); removeStatusBar(messageArea);
           if (data.data) {
             _lastFinalData = data.data as FinalData;
           }

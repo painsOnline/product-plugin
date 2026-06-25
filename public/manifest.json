@@ -1,8 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "商品一键导入助手",
+  "name": "鑫钱搬手",
   "version": "0.1.0",
   "description": "自动从1688/淘宝抓取商品数据，一键导入到街顺后台",
+  "icons": {
+    "16": "static/xinqianbanshou_icon.png",
+    "48": "static/xinqianbanshou_icon.png",
+    "128": "static/xinqianbanshou_icon.png"
+  },
   "permissions": [
     "storage",
     "activeTab",
@@ -18,7 +23,8 @@
   ],
   "action": {
     "default_popup": "src/popup/index.html",
-    "default_title": "商品导入助手"
+    "default_title": "鑫钱搬手",
+    "default_icon": "static/xinqianbanshou_icon.png"
   },
   "background": {
     "service_worker": "background.js",

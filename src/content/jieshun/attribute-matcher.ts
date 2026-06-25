@@ -205,32 +205,80 @@ async function matchMultiSelect(
   return allMatched;
 }
 
+/** 匹配可搜索多选 select（如品牌 — 先输入搜索 → 下拉过滤 → 点击选项 → 可多次选择） */
+async function matchSearchableMultiSelect(
+  formItem: HTMLElement,
+  targetValues: string[],
+): Promise<boolean> {
+  const searchInput = formItem.querySelector<HTMLInputElement>('.el-select__input');
+  if (!searchInput) return false;
+
+  // 先点击打开下拉
+  const selectWrapper = formItem.querySelector<HTMLElement>('.el-select');
+  if (selectWrapper) selectWrapper.click();
+  await new Promise((r) => setTimeout(r, 300));
+
+  let allMatched = true;
+
+  for (const targetValue of targetValues) {
+    // 输入搜索关键词触发下拉过滤
+    setNativeInputValue(searchInput, targetValue);
+    await new Promise((r) => setTimeout(r, 800));
+
+    // 查找可见选项
+    const options = document.querySelectorAll<HTMLElement>(
+      '.el-select-dropdown__item:not(.is-disabled)'
+    );
+    let found = false;
+    for (const opt of options) {
+      const text = opt.textContent?.trim() || '';
+      if (text === targetValue || text.includes(targetValue) || targetValue.includes(text)) {
+        opt.click();
+        found = true;
+        await new Promise((r) => setTimeout(r, 200));
+        break;
+      }
+    }
+    if (!found) allMatched = false;
+  }
+
+  // 关闭下拉
+  closeDropdown();
+  return allMatched;
+}
+
 /** 自动检测表单项类型并填充值 */
 async function fillFormItem(
   formItem: HTMLElement,
   targetValues: string[],
 ): Promise<boolean> {
+  const hasSearchInput = formItem.querySelector('.el-select__input');
+  const hasMultiSelect = formItem.querySelector('.el-select__tags');
+
+  // 可搜索 + 多选（如品牌）：优先处理
+  if (hasSearchInput && hasMultiSelect) {
+    return matchSearchableMultiSelect(formItem, targetValues);
+  }
+
   const targetValue = targetValues[0] || '';
 
-  // 检测是否可搜索 select（有 .el-select__input 子 input）
-  const hasSearchInput = formItem.querySelector('.el-select__input');
+  // 可搜索单选 select
   if (hasSearchInput) {
     return matchSearchableSelect(formItem, targetValue);
   }
 
-  // 检测是否多选 select（有 .el-select__tags）
-  const hasMultiSelect = formItem.querySelector('.el-select__tags');
+  // 普通多选 select（无搜索）
   if (hasMultiSelect) {
     return matchMultiSelect(formItem, targetValues);
   }
 
-  // 检测是否是普通 select（有 .el-select 组件）
+  // 普通 select（单选）
   const hasSelect = formItem.querySelector('.el-select');
   if (hasSelect) {
     return matchSelect(formItem, targetValue);
   }
 
-  // 检测是否是文本输入
+  // 文本输入
   const hasTextInput = formItem.querySelector('.el-input__inner[type="text"]');
   if (hasTextInput) {
     return matchTextInput(formItem, targetValue);
